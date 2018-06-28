@@ -9,6 +9,9 @@ metadata:
     release: {{ .Release.Name }}
 data:
 {{- define "cas.jetty.preprint-services" }}
+africarxiv:
+  id: '203948234207264'
+  name: 'AfricArXiv Preprints'
 agrixiv:
   id: '203948234207244'
   name: AgriXiv Preprints
@@ -31,6 +34,7 @@ engrxiv:
 ecsarxiv:
   id: '203948234207259'
   name: ECSarXiv Preprints
+  domain: ecsarxiv.org
 experimentalprotocols:
   id: '203948234207258'
   name: Experimental Protocols Preprints

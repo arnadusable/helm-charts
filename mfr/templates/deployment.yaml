@@ -51,7 +51,7 @@ spec:
             - -g
             - daemon off;
           ports:
-            - name: http
+            - name: http-internal
               containerPort: {{ .Values.service.internalPort }}
           readinessProbe:
             httpGet:
@@ -82,7 +82,7 @@ spec:
             - name: ENV
               value: kube
           ports:
-            - name: http
+            - name: http-external
               containerPort: {{ .Values.service.externalPort }}
           readinessProbe:
             httpGet:
@@ -112,6 +112,18 @@ spec:
             - --port
             - '2002'
             - -vvv
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |-
+                  cd /tmp
+                  touch test.txt
+                  timeout 10 unoconv -f html test.txt
+                  exit $?
+            initialDelaySeconds: 30
+            periodSeconds: 10
           ports:
             - name: unoconv
               containerPort: 2002
