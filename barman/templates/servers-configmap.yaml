@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "barman.servers.configmap.fullname" . }}
+  labels:
+    app: {{ template "barman.name" . }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+data:
+  {{ .Values.postgresql.nameOverride }}.conf: |-
+    [{{ .Values.postgresql.nameOverride }}]
+    description = "Main DB Server"
+    conninfo = host={{ include "postgresql.fullname" . }} dbname={{ .Values.postgresql.database }} user={{ .Values.postgresql.user }} password={{ .Values.postgresql.password }}
+    retention_policy_mode = auto
+    wal_retention_policy = main
+    archiver = on
+    streaming_archiver_name = {{ .Values.postgresql.replicationSlot }}
+    backup_method = postgres
+    slot_name = {{ .Values.postgresql.slotName }}
+    streaming_archiver = on
+
+    {{ .Values.postgresql.additonnalConf | nindent 4 }}

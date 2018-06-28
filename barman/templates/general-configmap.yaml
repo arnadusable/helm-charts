@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "barman.general.configmap.fullname" . }}
+  labels:
+    app: {{ template "barman.name" . }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+data:
+  cron_barman: |
+    30 3 * * *   root  /usr/bin/barman   backup {{ .Values.postgresql.nameOverride }}
+    * * * * *   root  /usr/bin/barman   -q cron
+
+  barman.conf: |-
+    [barman]
+    barman_user = root
+    configuration_files_directory = /etc/barman.d
+    barman_home = {{ .Values.home }}
+    log_file = /var/log/syslog
+    log_level = DEBUG
+    compression = gzip
+    basebackup_retry_times = 3
+    basebackup_retry_sleep = 30
+    last_backup_maximum_age = 1 DAYS
+    retention_policy = {{ .Values.retentionPolicy }}
+    post_backup_script = {{ index ( index .Values.extraConfigMaps 0 "mountPath") }}/{{ index ( index .Values.extraConfigMaps 0 "mountName") }} >> /var/log/syslog

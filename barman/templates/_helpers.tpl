@@ -14,3 +14,19 @@ We truncate at 63 chars because some Kubernetes name fields are limited to this 
 {{- $name := default .Chart.Name .Values.nameOverride -}}
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{- define "barman.servers.configmap.fullname" -}}
+{{- $fullname := include "barman.fullname" . -}}
+{{- printf "%s-%s" $fullname "directory" | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "barman.general.configmap.fullname" -}}
+{{- $fullname := include "barman.fullname" . -}}
+{{- printf "%s-%s" $fullname "general" | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "postgresql.fullname" -}}
+{{- $serviceName := default "proxy" .Values.postgresql.nameOverride -}}
+{{- $name := default .Chart.Name .Values.postgresql.proxy.nameOverride -}}
+{{- printf "%s-%s-%s" .Release.Name  $serviceName $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}

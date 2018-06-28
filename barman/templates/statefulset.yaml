@@ -20,25 +20,56 @@ spec:
         app: {{ template "barman.name" . }}
         release: {{ .Release.Name }}
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- if .Values.enableChecksum }}
+        checksum/config: {{ include (print $.Template.BasePath "/general-configmap.yaml") . | sha256sum }} {{ include (print $.Template.BasePath "/servers-configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      {{- end }}
         {{- if and (eq .Capabilities.KubeVersion.Major "1") (lt .Capabilities.KubeVersion.Minor "8") }}
         pod.alpha.kubernetes.io/init-containers: null
         pod.beta.kubernetes.io/init-containers: null
         {{- end }}
     spec:
+
+      {{- if .Values.affinity }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- end }}
+
+    {{- if .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+    {{- end }}
+
       initContainers:
+        {{- if .Values.waitDatabase }}
+        - name: "wait-postgres"
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ default "Always" .Values.imagePullPolicy }}
+          env:
+            - name: PGHOST
+              value: {{ include "postgresql.fullname" . }}
+            - name: PGUSER
+              value: {{ .Values.postgresql.user | quote}}
+            - name: PGPASSWORD
+              value: {{ .Values.postgresql.password  | quote }}
+            - name: PGPORT
+              value: {{ .Values.postgresql.port | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.postgresql.database | quote}}
+          command: ["/bin/sh", "-c", "while ! pg_isready ; do sleep 1 && echo -n .; done"]
         - name: chown
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - /bin/sh
             - -c
-            - chown -R barman:barman /recover
+            - chown -R barman:barman /recover &&
+
           volumeMounts:
             - mountPath: /recover
               name: recover
               subPath: recover
+        {{- end }}
         {{- if .Values.tls.enabled }}
         - name: certificates
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -46,15 +77,14 @@ spec:
           command:
             - /bin/sh
             - -c
-            - export dir=/var/lib/barman/.postgresql &&
+            - export dir={{ .Values.home }}/.postgresql &&
               mkdir -p ${dir} &&
               cp -f /certs/* ${dir} &&
               chown -R barman:barman ${dir} &&
               chmod -R 0600 ${dir}/*
           volumeMounts:
-            - mountPath: /var/lib/barman
+            - mountPath: {{ .Values.home }}
               name: data
-              subPath: data
             {{- range $key := keys .Values.tls.files }}
             - mountPath: /certs/{{ $key }}
               name: secret
@@ -66,10 +96,20 @@ spec:
         - name: barman
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- $secretFile := .Values.extraEnvs.secretFile -}}
+            {{- range .Values.extraEnvs.variables }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretFile  }}
+                  key: {{ . }}
+            {{- end }}
           volumeMounts:
-            - mountPath: /var/lib/barman
+            - mountPath: {{ .Values.home }}
               name: data
-              subPath: data
+            - mountPath: /var/log/barman
+              name: log
             - mountPath: /recover
               name: recover
               subPath: recover
@@ -77,18 +117,40 @@ spec:
               name: config
               subPath: barman.conf
               readOnly: true
-            - mountPath: /etc/cron.d/barman_schedule
+            - mountPath: /etc/cron.d/cron_barman
               name: config
-              subPath: cron.d-barman_schedule
-              readOnly: true
-          {{- range $key := keys .Values.backups }}
-            - mountPath: /etc/barman.d/{{ $key }}.conf
-              name: secret
-              subPath: barman.d-{{ $key }}.conf
-              readOnly: true
-          {{- end }}
+              subPath: cron_barman
+            - mountPath: /etc/barman.d/
+              name: servers-config
+            - name: ssh-secrets
+              mountPath: /root/.ssh/authorized_keys
+              subPath: authorized_keys
+              mode: 384
+            - name: ssh-secrets
+              mountPath: /root/.ssh/id_rsa
+              subPath: id_rsa
+              mode: 384
+
+            {{- range .Values.extraConfigMaps }} # mountPath name
+            - name: {{ .name }}
+              mountPath: {{ .mountPath | quote }}
+            {{- end }}
+
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+
+          readinessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
           # WORKAROUND: Cron and Crontab files not executed in Docker
           # https://stackoverflow.com/a/38850273
           lifecycle:
@@ -97,29 +159,54 @@ spec:
                 command:
                   - /bin/sh
                   - -c
-                  - touch /etc/crontab /etc/cron.d/* || true
+                  - env >> /etc/environment &&
+                    touch /etc/crontab /etc/cron.d/* || true &&
+                    cron &&
+                    barman cron &&
+                    /usr/sbin/sshd -e &&
+                    sleep 10
+                    {{- if .Values.waitDatabase }}
+                    && barman switch-xlog --force --archive --archive-timeout=60 {{ .Values.postgresql.nameOverride }}
+                    {{- end }}
       volumes:
-        {{- if not .Values.persistence.data.enabled }}
-        - name: data
-          emptyDir: {}
+        {{- range .Values.extraConfigMaps }}
+        - name: {{ .name }}
+          configMap:
+            name: {{ .name  }}
+            defaultMode: 0744
         {{- end }}
+        - name: log
+          emptyDir:
+            defaultMode: 0777
+
         {{- if not .Values.persistence.recover.enabled }}
         - name: recover
           emptyDir: {}
         {{- end }}
         - name: config
           configMap:
-            name: {{ template "barman.fullname" . }}
+            name: {{ template "barman.general.configmap.fullname" . }}
+        - name: servers-config
+          configMap:
+            name: {{ template "barman.servers.configmap.fullname" . }}
         - name: secret
           secret:
             secretName: {{ template "barman.fullname" . }}
-    {{- if .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml .Values.nodeSelector | nindent 8 }}
-    {{- end }}
-  {{- if or .Values.persistence.data.enabled .Values.persistence.recover.enabled }}
+        - name: ssh-secrets
+          secret:
+            secretName: {{ .Values.sshSecret }}
+            defaultMode: 384
+
+        {{- if not .Values.persistence.data.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- else if .Values.persistence.data.hostpath }}
+        - name: data
+          hostPath:
+            path: {{ .Values.persistence.data.hostpath }}{{ .Release.Name }}
+            type: {{ .Values.persistence.data.hostpathType }}
+        {{- else }}
   volumeClaimTemplates:
-    {{- if .Values.persistence.data.enabled }}
     - metadata:
         name: data
       spec:
@@ -131,18 +218,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.persistence.data.size | quote }}
-    {{- end }}
-    {{- if .Values.persistence.recover.enabled }}
-    - metadata:
-        name: recover
-      spec:
-        accessModes:
-          - {{ .Values.persistence.recover.accessMode | quote }}
-      {{- if hasKey .Values.persistence.recover "storageClass" }}
-        storageClassName: {{ .Values.persistence.recover.storageClass | quote }}
-      {{- end }}
-        resources:
-          requests:
-            storage: {{ .Values.persistence.recover.size | quote }}
-    {{- end }}
   {{- end }}

@@ -13,6 +13,7 @@ resources: {}
   #requests:
   #  cpu: 100m
   #  memory: 128Mi
+retentionPolicy: "REDUNDANCY 7"
 
 persistence:
   data:
@@ -20,27 +21,57 @@ persistence:
     # storageClass: ssd
     accessMode: ReadWriteOnce
     size: 8Gi
+    hostpathType: DirectoryOrCreate
+    hostpath: /var/lib/barman/
+
   recover:
     enabled: false
     # storageClass: ssd
     accessMode: ReadWriteOnce
     size: 4Gi
 
+service:
+  type: ClusterIP
+  externalPort: 22
+  internalPort: 22
+  name: ssh
+
+sshSecret:
+
+home: /var/lib/barman
+
+
+postgresql:
+  nameOverride: main
+  proxy:
+    nameOverride:
+  user: postgres
+  password: postgres
+  database: postgres
+  replicationSlot: barman
+  port: 5432
+  slotName: barman
+
+waitDatabase: true
+enableChecksum: false
+
+affinity: {}
+
 backups:
   # see more: http://docs.pgbarman.org/release/2.3/#examples-of-configuration
-  default:
-    schedule: 0 1 * * *
-    conf: |-
-      [default]
-      description = "Example of PostgreSQL Database (Streaming-Only)"
-      conninfo = host=pg user=barman dbname=postgres password=guessme
-      streaming_conninfo = host=pg user=streaming_barman password=guessme
-      backup_method = postgres
-      streaming_archiver = on
-      slot_name = barman
-
-      ; see more @ http://docs.pgbarman.org/release/2.3/barman.5.html#options
-      ; retention_policy = REDUNDANCY 999
+  #default:
+  #  schedule: 0 1 * * *
+  #  conf: |-
+  #    [default]
+  #    description = "Example of PostgreSQL Database (Streaming-Only)"
+  #    conninfo = host=pg user=barman dbname=postgres password=guessme
+  #    streaming_conninfo = host=pg user=streaming_barman password=guessme
+  #    backup_method = postgres
+  #    streaming_archiver = on
+  #    slot_name = barman#
+  #
+  #    ; see more @ http://docs.pgbarman.org/release/2.3/barman.5.html#options
+  #    ; retention_policy = REDUNDANCY 999
   # another:
   #   schedule: 0 1 * * *
   #   conf: |-
@@ -99,5 +130,14 @@ tls:
       ...
     root.crl: |-
       ...
+
+extraConfigMaps: []
+
+extraEnvs:
+  secretFile: blackblaze-secret
+  variables:
+    - "B2_ACCOUNT_ID"
+    - "B2_APPLICATION_KEY"
+    - "B2_BUCKET_NAME"
 
 configFiles: {}
