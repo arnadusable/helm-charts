@@ -40,6 +40,9 @@ spec:
         {{- toYaml .Values.nodeSelector | nindent 8 }}
     {{- end }}
 
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 6 }}
+
       initContainers:
         {{- if .Values.waitDatabase }}
         - name: "wait-postgres"
@@ -130,7 +133,6 @@ spec:
               mountPath: /root/.ssh/id_rsa
               subPath: id_rsa
               mode: 384
-
             {{- range .Values.extraConfigMaps }} # mountPath name
             - name: {{ .name }}
               mountPath: {{ .mountPath | quote }}

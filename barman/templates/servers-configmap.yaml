@@ -15,9 +15,11 @@ data:
     retention_policy_mode = auto
     wal_retention_policy = main
     archiver = on
-    streaming_archiver_name = {{ .Values.postgresql.replicationSlot }}
     backup_method = postgres
+
+    # Don't use streaming wal.
+    #streaming_archiver_name = {{ .Values.postgresql.replicationSlot }}
     slot_name = {{ .Values.postgresql.slotName }}
-    streaming_archiver = on
+    streaming_archiver = off
 
     {{ .Values.postgresql.additonnalConf | nindent 4 }}
